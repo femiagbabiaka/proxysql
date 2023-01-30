@@ -183,8 +183,11 @@ QP_query_digest_stats::QP_query_digest_stats(char *u, char *s, uint64_t d, char 
 	rows_sent=0;
 	hid=h;
 }
-void QP_query_digest_stats::add_time(unsigned long long t, unsigned long long n, unsigned long long ra, unsigned long long rs) {
-	count_star++;
+void QP_query_digest_stats::add_time(
+	unsigned long long t, unsigned long long n, unsigned long long ra, unsigned long long rs,
+	unsigned long long cnt
+) {
+	count_star += cnt;
 	sum_time+=t;
 	rows_affected+=ra;
 	rows_sent+=rs;
@@ -1173,10 +1176,16 @@ unsigned long long Query_Processor::get_query_digests_total_size() {
 SQLite3_result * Query_Processor::get_query_digests() {
 	proxy_debug(PROXY_DEBUG_MYSQL_QUERY_PROCESSOR, 4, "Dumping current query digest\n");
 	SQLite3_result *result = NULL;
-	pthread_rwlock_rdlock(&digest_rwlock);
+	// Create an auxiliary map and swap its content with the main map. This
+	// way, this function can read query digests stored until now while other
+	// threads write in the other map. We need to lock while swapping.
+	umap_query_digest digest_umap_aux;
+	pthread_rwlock_wrlock(&digest_rwlock);
+	digest_umap.swap(digest_umap_aux);
+	pthread_rwlock_unlock(&digest_rwlock);
 	unsigned long long curtime1;
 	unsigned long long curtime2;
-	size_t map_size = digest_umap.size();
+	size_t map_size = digest_umap_aux.size();
 	if (map_size >= DIGEST_STATS_FAST_MINSIZE) {
 		result = new SQLite3_result(14, true);
 		curtime1 = monotonic_time();
@@ -1203,7 +1212,7 @@ SQLite3_result * Query_Processor::get_query_digests() {
 		for (int i=0; i<n; i++) {
 			args[i].m=i;
 			//args[i].ret=0;
-			args[i].gu = &digest_umap;
+			args[i].gu = &digest_umap_aux;
 			args[i].gtu = &digest_text_umap;
 			args[i].result = result;
 			args[i].free_me = false;
@@ -1219,7 +1228,11 @@ SQLite3_result * Query_Processor::get_query_digests() {
 			pthread_join(args[i].thr, NULL);
 		}
 	} else {
-		for (std::unordered_map<uint64_t, void *>::iterator it=digest_umap.begin(); it!=digest_umap.end(); ++it) {
+		for (
+			std::unordered_map<uint64_t, void *>::iterator it = digest_umap_aux.begin();
+			it != digest_umap_aux.end();
+			++it
+		) {
 			QP_query_digest_stats *qds=(QP_query_digest_stats *)it->second;
 			query_digest_stats_pointers_t *a = (query_digest_stats_pointers_t *)malloc(sizeof(query_digest_stats_pointers_t));
 			char **pta=qds->get_row(&digest_text_umap, a);
@@ -1227,13 +1240,35 @@ SQLite3_result * Query_Processor::get_query_digests() {
 			free(a);
 		}
 	}
-	pthread_rwlock_unlock(&digest_rwlock);
 	if (map_size >= DIGEST_STATS_FAST_MINSIZE) {
 		curtime2=monotonic_time();
 		curtime1 = curtime1/1000;
 		curtime2 = curtime2/1000;
 		proxy_info("Running query on stats_mysql_query_digest: locked for %llums to retrieve %lu entries\n", curtime2-curtime1, map_size);
 	}
+
+	// Once the reading finishes, we lock and swap again both maps. Then, we
+	// merge the content of the auxiliary map in the main map and clear the
+	// content of the auxiliary map.
+	pthread_rwlock_wrlock(&digest_rwlock);
+	digest_umap_aux.swap(digest_umap);
+	for (const auto& element : digest_umap_aux) {
+		uint64_t digest = element.first;
+		QP_query_digest_stats *qds = (QP_query_digest_stats *)element.second;
+		std::unordered_map<uint64_t, void *>::iterator it = digest_umap.find(digest);
+		if (it != digest_umap.end()) {
+			// found
+			QP_query_digest_stats *qds_equal = (QP_query_digest_stats *)it->second;
+			qds_equal->add_time(
+				qds->min_time, qds->last_seen, qds->rows_affected, qds->rows_sent, qds->count_star
+			);
+		} else {
+			digest_umap.insert(element);
+		}
+	}
+	digest_umap_aux.clear();
+	pthread_rwlock_unlock(&digest_rwlock);
+
 	return result;
 }
 

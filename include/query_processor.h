@@ -61,7 +61,10 @@ class QP_query_digest_stats {
 	unsigned long long rows_sent;
 	int hid;
 	QP_query_digest_stats(char *u, char *s, uint64_t d, char *dt, int h, char *ca);
-	void add_time(unsigned long long t, unsigned long long n, unsigned long long ra, unsigned long long rs);
+	void add_time(
+		unsigned long long t, unsigned long long n, unsigned long long ra, unsigned long long rs,
+		unsigned long long cnt = 1
+	);
 	~QP_query_digest_stats();
 	char **get_row(umap_query_digest_text *digest_text_umap, query_digest_stats_pointers_t *qdsp);
 };
