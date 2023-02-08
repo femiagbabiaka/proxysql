@@ -219,7 +219,7 @@ ubuntu18: binaries/proxysql_${CURVER}-ubuntu18_amd64.deb
 .PHONY: ubuntu18
 
 ubuntu20: binaries/proxysql_${CURVER}-ubuntu20_amd64.deb
-.PHONY: ubuntu18
+.PHONY: ubuntu20
 
 debian7: binaries/proxysql_${CURVER}-debian7_amd64.deb
 .PHONY: debian7
