@@ -2071,7 +2071,7 @@ __exit_monitor_replication_lag_thread:
 							if (row) {
 								repl_lag=mysql_thread___monitor_slave_lag_when_null; // new behavior, see 669
 								if (row[j] && row[slave_sql_running_idx] && row[slave_io_running_idx]) { // if Seconds_Behind_Master Slave_SQL_Running and Slave_IO_Running are not NULL
-									if (strcmp(row[slave_sql_running_idx], "yes") ==0 && strcmp(row[slave_io_running_idx], "Yes")==0) { // if both Slave_SQL_Running and Slave_IO_Running are Yes
+									if (strcmp(row[slave_sql_running_idx], "Yes") ==0 && strcmp(row[slave_io_running_idx], "Yes")==0) { // if both Slave_SQL_Running and Slave_IO_Running are Yes
 										repl_lag=atoi(row[j]); // then repl_lag is the value from SHOW SLAVE STATUS
 									} else {
 										repl_lag=-1; // Otherwise, treat repl_lag the same as we would if it was null
